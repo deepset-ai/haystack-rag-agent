@@ -126,6 +126,10 @@ def run_pipeline(messages):
     2. What is the population size of Germany
     
     Then you use the results of both searches, to formulate the answer.
+    You have a capacity of 6 text chunks per user question, which you should always make use of. So allocate the top_k wisely for you searches.
+    
+    If the search tool does not provide the results needed to answer the quetsion, try out a search with a adjusted query. But only try it out a maximum of 2 times. After that, end the seach and tell the user that now answer was found. For the new initiation, you can again use the same top_k as before.
+    Think, which slight change in formulation could potentially help to retrieve the correct documents. It should be a significant change, so not just the change of order of words. But instead, different words should be used which represent the same base question.
 
     """
 

@@ -60,38 +60,40 @@ class AgentVisualizer:
         mermaid_graph.append("    classDef greyedOut fill:#d3d3d3,stroke:#a9a9a9,color:#696969;")
         mermaid_graph.append("```")
 
-        # Create Markdown formatted tool call details
+        # Create toggled Markdown formatted tool call details
         markdown_output_lines = []
         for executed_tool in executed_tools:
             tool_name = executed_tool["tool_name"]
             parameters = executed_tool["parameters"]
             result = executed_tool["result"]
 
-            tool_block = [
-                f"> **`{tool_name}`**",
-                ">",
-                "> |        |               |",
-                "> |--------|---------------|"
+            # Build the toggle block
+            toggle_block = [
+                f"**{tool_name}**",
+                "<details>",
+                "  <summary>Click to expand</summary>",
+                "",
+                "  | Parameter | Value |",
+                "  |-----------|-------|"
             ]
 
             for param, value in parameters.items():
-                tool_block.append(f"> | {param.capitalize()} | **{value}** |")
+                toggle_block.append(f"  | {param.capitalize()} | {value} |")
 
-            tool_block.append(">")  # Blank line before blockquote
+            toggle_block.append("")
 
-            # Handle multiline result by prefixing each line with '>'
+            # Add the result block (handle multiline results)
             if isinstance(result, str):
-                multiline_result = "\n".join(f"> {line}" for line in result.splitlines())
-                tool_block.append(multiline_result)
+                multiline_result = "\n".join(f"  {line}" for line in result.splitlines())
+                toggle_block.append(multiline_result)
             else:
-                tool_block.append(f"> {result}")
+                toggle_block.append(f"  {result}")
 
-            markdown_output_lines.append("\n".join(tool_block))
+            toggle_block.append("</details>")
+            markdown_output_lines.append("\n".join(toggle_block))
             markdown_output_lines.append("")  # Extra newline between tools
-
-        # Join all tool blocks with double newlines to separate them
-        markdown_string = "\n\n".join(markdown_output_lines)
 
         # Combine Mermaid graph and Markdown tool details
         mermaid_string = "\n".join(mermaid_graph)
+        markdown_string = "\n\n".join(markdown_output_lines)
         return f"{mermaid_string}\n\n{markdown_string}"

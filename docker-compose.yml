@@ -32,20 +32,22 @@ services:
     networks:
       - mynetwork
 
-#  openweb-ui-pipelines:
-#    container_name: openweb-ui-pipelines
-#    image: "ghcr.io/open-webui/pipelines:main"
-#    restart: always
-#    environment:
-#      - HTTP_PROXY=
-#      - HTTPS_PROXY=
-#      - http_proxy=
-#      - https_proxy=
-#      - GLOBAL_LOG_LEVEL=DEBUG
-#    volumes:
-#      - ./openweb_ui_pipelines:/app/pipelines
-#    ports:
-#      - "9099:9099"
+  opensearch:
+    image: opensearchproject/opensearch:latest
+    restart: always
+    container_name: opensearch
+    ports:
+      - 9200:9200
+      - 9600:9600
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - DISABLE_INSTALL_DEMO_CONFIG=true # Prevents execution of bundled demo script which installs demo certificates and security configurations to OpenSearch
+      - DISABLE_SECURITY_PLUGIN=true
+    volumes:
+      - ./opensearch-data:/usr/share/opensearch/data
+    networks:
+      - mynetwork
 
 networks:
   mynetwork:

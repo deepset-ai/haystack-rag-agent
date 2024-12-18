@@ -2,6 +2,7 @@ import time
 
 from fastapi import FastAPI
 from pydantic import BaseModel
+from retrieval import index_files
 
 from agent import run_pipeline
 
@@ -53,3 +54,8 @@ def get_models():
             }
         ]
     }
+
+@app.post("/index")
+def run_indexing():
+    index_files()
+    return {"message": "Indexing completed"}

@@ -1,5 +1,6 @@
 from typing import Annotated, Literal
 from haystack_experimental.dataclasses import Tool
+from retrieval import run_pipeline
 
 # def get_weather(
 #     city: Annotated[str, "the city for which to get the weather"] = "Munich",
@@ -27,21 +28,12 @@ def rephrase_query(
 
 
 def search_internal_knowledge(
-        query: Annotated[str, "Query on which semantic search will be performed"]
+        query: Annotated[str, "Query on which semantic search will be performed"],
+        top_k: Annotated[int, "The number of semantic similar text chunks to be returned"],
 ):
     """Starts a retrieval system, which searches internal knowledge based on semantic similarity to the input query."""
-    # Ensure case-insensitive matching
-    lower_query = query.lower()
-
-    if "germany" in lower_query:
-        return "Germany has 10 million inhabitants."
-    elif "france" in lower_query:
-        return "France has 5 million inhabitants."
-    elif "mac" in lower_query:
-        return "the computer has 16gb of ram"
-
-    # Default response for other queries
-    return "64 Million residents"
+    result = run_pipeline(query, top_k)
+    return result
 
 
 def get_tools():

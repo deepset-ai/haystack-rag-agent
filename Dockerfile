@@ -4,7 +4,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y git && apt-get clean
 
-RUN pip install jsonschema python-dotenv fastapi uvicorn
+RUN pip install jsonschema python-dotenv fastapi uvicorn opensearch-haystack pypdf
 RUN pip install git+https://github.com/deepset-ai/haystack-experimental@main
 
 COPY . /app
