@@ -1,0 +1,52 @@
+services:
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "1416:1416"
+    networks:
+      - mynetwork
+
+  openweb-ui:
+    container_name: openweb-ui
+    image: "ghcr.io/open-webui/open-webui:main"
+    restart: always
+    environment:
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - OPENAI_API_BASE_URL=http://agent:1416/v1
+      - ENABLE_OLLAMA_API=False
+      - WEBUI_AUTH=False
+      - GLOBAL_LOG_LEVEL=DEBUG
+      - HF_HUB_OFFLINE=1
+      - TRANSFOMRERS_OFFLINE=1
+      - RAG_EMBEDDING_MODEL=
+    volumes:
+      - ./openweb_ui_data:/app/backend/data
+    ports:
+      - "2000:8080"
+    networks:
+      - mynetwork
+
+#  openweb-ui-pipelines:
+#    container_name: openweb-ui-pipelines
+#    image: "ghcr.io/open-webui/pipelines:main"
+#    restart: always
+#    environment:
+#      - HTTP_PROXY=
+#      - HTTPS_PROXY=
+#      - http_proxy=
+#      - https_proxy=
+#      - GLOBAL_LOG_LEVEL=DEBUG
+#    volumes:
+#      - ./openweb_ui_pipelines:/app/pipelines
+#    ports:
+#      - "9099:9099"
+
+networks:
+  mynetwork:
+    driver: bridge
