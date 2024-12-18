@@ -23,6 +23,7 @@ class OpenAIAgent(OpenAIChatGenerator):
             messages: Optional[List[ChatMessage]] = None,
             followup_messages: Optional[List[ChatMessage]] = None,
             tools: Optional[List[Tool]] = None,
+            streaming_callback=None,
             *args,
             **kwargs,
     ) -> Dict[str, Any]:
@@ -33,7 +34,7 @@ class OpenAIAgent(OpenAIChatGenerator):
             messages = followup_messages
 
 
-        parent_result = super(OpenAIAgent, self).run(messages, tools=tools, *args, **kwargs)
+        parent_result = super(OpenAIAgent, self).run(messages, tools=tools, streaming_callback = streaming_callback, *args, **kwargs)
         completions = parent_result["replies"]
 
         print(completions)
@@ -51,6 +52,7 @@ class OpenAIAgent(OpenAIChatGenerator):
         messages: Optional[List[ChatMessage]] = None,
         followup_messages: Optional[List[ChatMessage]] = None,
         tools: Optional[List[Tool]] = None,
+        streaming_callback=None,
         *args,
         **kwargs,
     ) -> Dict[str, Any]:
@@ -58,7 +60,7 @@ class OpenAIAgent(OpenAIChatGenerator):
         if followup_messages:
             messages = followup_messages
 
-        parent_result = await super(OpenAIAgent, self).run_async(messages, tools=tools,  *args, **kwargs)
+        parent_result = await super(OpenAIAgent, self).run_async(messages, tools=tools, streaming_callback = streaming_callback,  *args, **kwargs)
         completions = parent_result["replies"]
 
         messages.append(completions[0])

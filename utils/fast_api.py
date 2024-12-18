@@ -1,10 +1,12 @@
 import time
-
+import json
 from fastapi import FastAPI
 from pydantic import BaseModel
-from retrieval import index_files
+from fastapi.responses import StreamingResponse
+from fastapi.encoders import jsonable_encoder
 
-from agent import run_pipeline
+from retrieval import index_files
+from agent import query_pipeline  # This is the async generator from your agent code
 
 app = FastAPI()
 
@@ -17,28 +19,31 @@ class OpenAIQuery(BaseModel):
 
 
 @app.post("/v1/chat/completions")
-def chat_completions_stream(query: OpenAIQuery):
+async def chat_completions_stream(query: OpenAIQuery):
+    async def stream_generator():
+        i = 0
 
-    reply = run_pipeline(query.messages)
-
-    response = {
-        "id": "chatcmpl-AXXyzrd626obzrJ02HBl9LXS3AJnp",
-        "object": "chat.completion",
-        "created": time.time(),
-        "model": "chatgpt-4o-latest",
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": reply,
-                },
-                "finish_reason": "stop"
+        async for content in query_pipeline(query.messages):
+            chunk = {
+                "id": f"a{i}",
+                "object": "chat.completion.chunk",
+                "created": time.time(),
+                "model": "haystack-agent",
+                "choices": [
+                    {
+                        "delta": {
+                            "content": content
+                        }
+                    }
+                ],
             }
-        ],
-    }
+            yield f"data: {json.dumps(chunk)}\n\n"
+            i += 1
 
-    return response
+        # When done, send the [DONE] message
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 
 @app.get("/v1/models")
@@ -54,6 +59,7 @@ def get_models():
             }
         ]
     }
+
 
 @app.post("/index")
 def run_indexing():

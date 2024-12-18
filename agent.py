@@ -1,59 +1,68 @@
+import os
+from dotenv import load_dotenv
 from haystack_experimental.dataclasses import ChatMessage
-from haystack import Pipeline
+from haystack_experimental.components.generators.chat import OpenAIChatGenerator
+from haystack_experimental.core import AsyncPipeline
 from haystack.utils import Secret
-
 from custom_components.chat_tool_invoker import ChatToolInvoker
 from custom_components.openai_agent import OpenAIAgent
 from custom_components.agent_visualizer import AgentVisualizer
 from tools import get_tools
-from haystack_experimental.components.generators.chat import OpenAIChatGenerator
+from typing import AsyncGenerator
 
-import os
-from dotenv import load_dotenv
-
-from car_simulation_tools import get_car_simulation_tools  # Import car simulation tools
-
+import asyncio
+from asyncio import Queue
+from haystack.dataclasses import StreamingChunk
 from haystack_experimental.dataclasses import Tool
 from typing import Annotated, Literal
 
-
-# def car_simulation_agent_tool(
-#     task: Annotated[str, "The task for running the simulation"] = "Bitcoin"
-# ):
-#     """A wrapper function to invoke the car simulation agent."""
-#     car_simulation_agent, tools = get_car_simulation_agent()
-#     messages = [ChatMessage.from_user(task)]
-#
-#     result = car_simulation_agent.run(
-#         data={
-#             "car_simulation_llm": {"messages": messages, "tools": tools},
-#             "agent_visualizer": {"tools": tools},
-#         },
-#         include_outputs_from=["car_simulation_llm", "agent_visualizer"],
-#     )
-#     return result["agent_visualizer"]["output"]
-
-
+from car_simulation_tools import get_car_simulation_tools  # Import car simulation tools
 
 _pipeline = None
 _tools = None
 _car_simulation_agent = None
 _car_simulation_tools = None
 
+class ChunkCollector:
+    """
+    Collector that stores chunks in an async queue.
+    """
+
+    def __init__(self):
+        self.queue = Queue()
+
+    async def generator(self) -> AsyncGenerator[str, None]:
+        """
+        Generate chunks from the queue.
+
+        :returns: AsyncGenerator yielding string chunks
+        """
+        while True:
+            chunk = await self.queue.get()
+            if chunk is None:
+                break
+            yield chunk
+
+async def collect_chunk(queue: Queue, chunk: StreamingChunk):
+    """
+    Collect chunks and store them in the queue.
+
+    :param queue: Queue to store the chunks
+    :param chunk: StreamingChunk to be collected
+    """
+    await queue.put(chunk.content)
+
 
 def initialize_pipeline():
     load_dotenv()
     tools = get_tools()
 
-    # tools.append(
-    #     Tool.from_function(car_simulation_agent_tool)
-    # )
-
     tool_invoker = ChatToolInvoker(tools=tools)
     generator = OpenAIChatGenerator(api_key=Secret.from_token(os.getenv("OPENAI_API_KEY")), model="gpt-4o")
     llm = OpenAIAgent(generator=generator)
 
-    pipeline = Pipeline()
+    # Use AsyncPipeline instead of Pipeline
+    pipeline = AsyncPipeline()
 
     pipeline.add_component("llm", llm)
     pipeline.add_component("tool_invoker", tool_invoker)
@@ -62,35 +71,10 @@ def initialize_pipeline():
     # Very simple agent loop
     pipeline.connect("llm.tool_reply", "tool_invoker.messages")
     pipeline.connect("tool_invoker.tool_messages", "llm.followup_messages")
-
     pipeline.connect("llm.chat_history", "agent_visualizer.messages")
 
     return pipeline, tools
 
-
-def initialize_car_simulation_agent():
-    load_dotenv()
-    car_simulation_tools = get_car_simulation_tools()
-
-    tool_invoker = ChatToolInvoker(tools=car_simulation_tools)
-    generator = OpenAIChatGenerator(api_key=Secret.from_token(os.getenv("OPENAI_API_KEY")), model="gpt-4o")
-    car_simulation_llm = OpenAIAgent(generator=generator)
-
-
-    pipeline = Pipeline()
-
-    pipeline.add_component("car_simulation_llm", car_simulation_llm)
-    pipeline.add_component("car_simulation_tool_invoker", tool_invoker)
-    pipeline.add_component("agent_visualizer", AgentVisualizer())
-
-
-    # Simple agent loop for car simulation
-    pipeline.connect("car_simulation_llm.tool_reply", "car_simulation_tool_invoker.messages")
-    pipeline.connect("car_simulation_tool_invoker.tool_messages", "car_simulation_llm.followup_messages")
-
-    pipeline.connect("car_simulation_llm.chat_history", "agent_visualizer.messages")
-
-    return pipeline, car_simulation_tools
 
 
 def get_pipeline():
@@ -100,21 +84,31 @@ def get_pipeline():
     return _pipeline, _tools
 
 
-def get_car_simulation_agent():
-    global _car_simulation_agent, _car_simulation_tools
-    if _car_simulation_agent is None or _car_simulation_tools is None:
-        _car_simulation_agent, _car_simulation_tools = initialize_car_simulation_agent()
-    return _car_simulation_agent, _car_simulation_tools
+def convert_to_chat_message_objects(messages):
+    chat_message_objects = []
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+
+        adapted_message = {
+            "_role": role,
+            "_content": [{"text": content}]
+        }
+
+        chat_message = ChatMessage.from_dict(adapted_message)
+        chat_message_objects.append(chat_message)
+    return chat_message_objects
 
 
+async def query_pipeline(messages) -> AsyncGenerator[str, None]:
+    """
+    Asynchronously query the pipeline and stream the response.
+    """
+    request_collector = ChunkCollector()
 
-def run_pipeline(messages):
     pipeline, tools = get_pipeline()
-    car_simulation_agent, _ = get_car_simulation_agent()
 
-    # Add the car simulation agent as a tool
-    # tools.append(car_simulation_agent)
-
+    # System message
     system_message = """
     Du bist ein agentisches RAG-System. Bei einer Benutzerfrage gehst du wie folgt vor:
     1. Nutze "umformulieren_anfrage" **einmalig** am Anfang, um die Frage an interne Begriffe oder Abkürzungen anzupassen. Dieses Tool wird nur statisch und ausschließlich auf die ursprüngliche Frage angewendet. Verwende es niemals erneut.
@@ -144,37 +138,20 @@ def run_pipeline(messages):
     messages = convert_to_chat_message_objects(messages)
     messages = system_message + messages
 
-    result = pipeline.run(
-        data={
-            "llm": {"messages": messages, "tools": tools},
-            "agent_visualizer": {"tools": tools},
-        },
-        include_outputs_from=["llm", "tool_invoker"]
-    )
-    print(result)
-    return result["agent_visualizer"]["output"]
+    async def callback(chunk):
+        print(chunk)
+        await collect_chunk(request_collector.queue, chunk)
 
+    input_data = {
+        "llm": {"messages": messages, "tools": tools, "streaming_callback": callback},
+        "agent_visualizer": {"tools": tools}
+    }
 
-def convert_to_chat_message_objects(messages):
-    chat_message_objects = []
-    for msg in messages:
-        role = msg["role"]
-        content = msg["content"]
+    async def pipeline_runner():
+        async for _ in pipeline.run(input_data):
+            pass
+        await request_collector.queue.put(None)
 
-        adapted_message = {
-            "_role": role,
-            "_content": [{"text": content}]
-        }
-
-        chat_message = ChatMessage.from_dict(adapted_message)
-        chat_message_objects.append(chat_message)
-    return chat_message_objects
-
-
-if __name__ == "__main__":
-    messages = [
-        {"role": "user", "content": "What is the difference in population size between germany and france?"}
-    ]
-
-    response = run_pipeline(messages=messages)
-    print("Response:", response)
+    asyncio.create_task(pipeline_runner())
+    async for chunk in request_collector.generator():
+        yield chunk

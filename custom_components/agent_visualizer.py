@@ -96,4 +96,6 @@ class AgentVisualizer:
         # Combine Mermaid graph and Markdown tool details
         mermaid_string = "\n".join(mermaid_graph)
         markdown_string = "\n\n".join(markdown_output_lines)
-        return f"{mermaid_string}\n\n{markdown_string}"
+        full_response = f"{mermaid_string}\n\n{markdown_string}"
+        # print(full_response)
+        return full_response
