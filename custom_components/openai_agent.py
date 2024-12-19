@@ -5,6 +5,8 @@ from haystack_experimental.dataclasses import ChatMessage, Tool
 from .openai_generator import OpenAIChatGenerator
 from haystack.dataclasses import StreamingChunk
 import inspect
+import copy
+
 
 
 
@@ -41,7 +43,7 @@ class OpenAIAgent(OpenAIChatGenerator):
 
         if completions[0].tool_calls:
             if streaming_callback:
-                chunk = StreamingChunk(content=followup_messages[-1])
+                chunk = StreamingChunk(content=copy.copy(followup_messages[-1]))
                 streaming_callback(chunk)
             return {"tool_reply": messages}
 
