@@ -134,6 +134,7 @@ async def query_pipeline(messages) -> AsyncGenerator[str, None]:
            - Verwende 6 relevante Textfragmente pro Benutzerfrage (top_k). Nutze diese clever aus, so dass du sie geschickt aufteilst, falls du mehrere Suchanfrage auslöst.
            - Wenn keine Ergebnisse gefunden werden, passe die Suchanfrage maximal zweimal an (Synonyme/Alternativen).
            - Informiere den Benutzer bei ausbleibenden Ergebnissen: „Es konnten keine relevanten Informationen zu Ihrer Anfrage gefunden werden.“
+           - Führe also für eine zerlegte Suche iterativ einen Tool Call aus.
 
         **Regeln:**
         - Ergänze keine neuen Inhalte oder Details in den Suchanfragen. Die Suchanfragen basieren nur auf der ursprünglichen Frage oder deren Teilfragen.
@@ -182,10 +183,70 @@ async def query_pipeline(messages) -> AsyncGenerator[str, None]:
     }
 
     async def pipeline_runner():
-        async for _ in pipeline.run(input_data):
-            pass
+        async for content in pipeline.run(
+                data={
+                    "llm": {"messages": messages, "tools": tools, "streaming_callback": callback},
+                    "agent_visualizer": {"tools": tools},
+                },
+        ):
+            print(f"chunk: {chunk}")# pass
         await request_collector.queue.put(None)
 
     asyncio.create_task(pipeline_runner())
     async for chunk in request_collector.generator():
         yield chunk
+
+
+async def run_pipeline(messages):
+    pipeline, tools = get_pipeline()
+
+    system_message = """
+    Du bist ein agentisches RAG-System. Bearbeite Benutzerfragen in 3 Schritten:
+
+    1. **Umformulierung:** Nutze "umformulieren_anfrage" genau einmal zu Beginn, um die originale Frage des Benutzers an interne Begriffe oder Abkürzungen anzupassen.
+
+    2. **Zerlegung (nur wenn nötig):** Zerlege die umformulierte Frage ausschließlich, wenn:
+       - **Vergleich:** Ein expliziter Vergleich enthalten ist (z. B. „Was ist der Unterschied zwischen A und B?“).
+       - **Mehrere Themen:** Die Frage mehrere klar abgegrenzte Themen oder Aspekte umfasst, die unabhängig voneinander beantwortet werden können.
+       - **Keine Zerlegung:** Wenn die umformulierte Frage bereits präzise und semantisch sinnvoll gestellt ist (z. B. „Was ist die Geschichte von Brot?“), führe **keine Zerlegung** durch und nutze die gesamte Frage für die Suche.
+
+       **Beispiele für Zerlegung:**
+       - Ursprünglich: „Unterschied zwischen Zubereitung von Brot heute und früher?“
+         - Teilfragen:
+           1. „Wie wurde Brot früher zubereitet?“
+           2. „Wie wird Brot heute zubereitet?“
+       - Ursprünglich: „Wie ist die Geschichte von Brot und wie wird es heute industriell hergestellt?“
+         - Teilfragen:
+           1. „Was ist die Geschichte von Brot?“
+           2. „Wie wird Brot heute industriell hergestellt?“
+
+    3. **Suche:** Führe gezielte Suchanfragen mit "suche_interne_kenntnisse" durch:
+       - Ergänze keine neuen Informationen oder Aspekte, die nicht explizit in der umformulierten Frage stehen.
+       - Die Suchanfragen sollen präzise Teilfragen der ursprünglichen Frage sein, ohne Vermutungen oder zusätzliche Inhalte.
+       - Plane maximal 6 relevante Textfragmente pro Benutzerfrage.
+       - Wenn keine Ergebnisse gefunden werden, passe die Suchanfrage maximal zweimal an (Synonyme/Alternativen).
+       - Informiere den Benutzer bei ausbleibenden Ergebnissen: „Es konnten keine relevanten Informationen zu Ihrer Anfrage gefunden werden.“
+
+    **Regeln:**
+    - Ergänze keine neuen Inhalte oder Details in den Suchanfragen. Die Suchanfragen basieren nur auf der ursprünglichen Frage oder deren Teilfragen.
+    - Zerlege die Frage nur, wenn ein Vergleich oder mehrere klar abgegrenzte Themen vorhanden sind.
+    - Vermeide redundante, generische oder irrelevante Teilfragen.
+    - Keine erfundenen Fakten, nutze nur Informationen aus der Frage.
+    """
+
+    system_message = [ChatMessage.from_system(system_message)]
+    messages = convert_to_chat_message_objects(messages)
+    messages = system_message + messages
+
+    final_result = None
+    async for result in pipeline.run(
+            data={
+                "llm": {"messages": messages, "tools": tools},
+                "agent_visualizer": {"tools": tools},
+            },
+            # include_outputs_from=["llm", "tool_invoker"]
+    ):
+        final_result = result
+
+    output = final_result["agent_visualizer"]["output"]
+    return output

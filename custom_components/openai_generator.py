@@ -457,6 +457,7 @@ class OpenAIChatGenerator:
 
         is_streaming = streaming_callback is not None
         num_responses = generation_kwargs.pop("n", 1)
+
         if is_streaming and num_responses > 1:
             raise ValueError("Cannot stream multiple responses, please set n=1.")
 

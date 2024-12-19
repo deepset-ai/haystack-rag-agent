@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.encoders import jsonable_encoder
 
 from retrieval import index_files
-from agent import query_pipeline  # This is the async generator from your agent code
+from agent import query_pipeline, run_pipeline  # This is the async generator from your agent code
 
 app = FastAPI()
 
@@ -20,6 +20,29 @@ class OpenAIQuery(BaseModel):
 
 @app.post("/v1/chat/completions")
 async def chat_completions_stream(query: OpenAIQuery):
+
+    if not query.stream:
+        reply = await run_pipeline(query.messages)
+
+        response = {
+            "id": "chatcmpl-AXXyzrd626obzrJ02HBl9LXS3AJnp",
+            "object": "chat.completion",
+            "created": time.time(),
+            "model": "chatgpt-4o-latest",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": reply,
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+        }
+
+        return response
+
     async def stream_generator():
         i = 0
 
