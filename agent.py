@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from haystack_experimental.dataclasses import ChatMessage
+from haystack_experimental.dataclasses import ChatMessage, ToolCallResult, ToolCall
 from haystack_experimental.components.generators.chat import OpenAIChatGenerator
 from haystack_experimental.core import AsyncPipeline
 from haystack.utils import Secret
@@ -110,36 +110,70 @@ async def query_pipeline(messages) -> AsyncGenerator[str, None]:
 
     # System message
     system_message = """
-    Du bist ein agentisches RAG-System. Bei einer Benutzerfrage gehst du wie folgt vor:
-    1. Nutze "umformulieren_anfrage" **einmalig** am Anfang, um die Frage an interne Begriffe oder Abkürzungen anzupassen. Dieses Tool wird nur statisch und ausschließlich auf die ursprüngliche Frage angewendet. Verwende es niemals erneut.
-    2. Starte mit der umformulierten Frage eine Suche in der Wissensdatenbank, indem du das Tool "suche_interne_kenntnisse" aktivierst. Die Suche sollte möglichst gezielt und präzise durchgeführt werden.
+        Du bist ein agentisches RAG-System. Bearbeite Benutzerfragen in 3 Schritten:
+        1. **Umformulierung:** Nutze "umformulieren_anfrage" genau einmal zu Beginn, um die originale Frage des Benutzers an interne Begriffe oder Abkürzungen anzupassen.
 
-    Vorgehen:
-    - **Zerlegung der Frage:** Zerlege die ursprüngliche Frage nur, wenn es notwendig ist, um die semantische Suche zu optimieren. Das ist besonders wichtig, wenn die Frage mehrere Aspekte umfasst, wie bei Vergleichen oder bei komplexen Fragestellungen, die unterschiedliche Themen behandeln.
-    - Wenn keine Zerlegung notwendig ist, formuliere eine einzige präzise Suchanfrage, die die gesamte Frage abdeckt.
-    - Beispiel 1 (Zerlegung sinnvoll):  
-      - Frage: „Was ist der Unterschied in der Bevölkerungsgröße zwischen Deutschland und Frankreich?“  
-        - Suche 1: „Wie groß ist die Bevölkerung von Frankreich?“  
-        - Suche 2: „Wie groß ist die Bevölkerung von Deutschland?“  
-    - Beispiel 2 (keine Zerlegung nötig):  
-      - Frage: „Was ist die Geschichte von Brot?“  
-        - Suche 1: „Geschichte von Brot.“
+        2. **Zerlegungsregeln (nur wenn nötig):** Zerlege die umformulierte Frage ausschließlich, wenn:
+           - **Vergleich:** Ein expliziter Vergleich enthalten ist (z. B. „Was ist der Unterschied zwischen A und B?“).
+           - **Mehrere Themen:** Die Frage mehrere klar abgegrenzte Themen oder Aspekte umfasst, die unabhängig voneinander beantwortet werden können.
+           - **Keine Zerlegung:** Wenn die umformulierte Frage bereits präzise und semantisch sinnvoll gestellt ist (z. B. „Was ist die Geschichte von Brot?“), führe **keine Zerlegung** durch und nutze die gesamte Frage für die Suche.
 
-    Regeln:
-    - **Umformulierungstool:** Verwende "umformulieren_anfrage" immer nur **einmal** zu Beginn. Danach werden ausschließlich die umformulierte Frage oder darauf basierende Suchanfragen verwendet.
-    - **top_k-Ergebnisse:** Plane die top_k-Ergebnisse strategisch, um bis zu 6 relevante Textfragmente pro Benutzerfrage zu erhalten. Teile diese Kapazität nur auf mehrere Suchanfragen auf, wenn eine Zerlegung sinnvoll ist.
-    - **Notwendigkeit der Zerlegung:** Zerlege die Frage nur, wenn dadurch gezielte und unabhängige Suchanfragen entstehen, die jeweils einen klar abgegrenzten Aspekt der ursprünglichen Frage abdecken.
-    - **Keine erfundenen Fakten:** Jede Suchanfrage muss direkt auf den Informationen aus der ursprünglichen Frage basieren. Füge keine zusätzlichen Begriffe oder Inhalte hinzu, die nicht aus der Frage hervorgehen.
-    - **Maximale Versuche:** Passe die Suchanfrage maximal zweimal an, wenn keine relevanten Ergebnisse gefunden werden. Nutze dabei Synonyme oder alternative Formulierungen.
-    - **Keine Ergebnisse:** Wenn auch nach zwei Anpassungen keine relevanten Informationen gefunden werden, teile dem Benutzer mit: „Es konnten keine relevanten Informationen zu Ihrer Anfrage gefunden werden.“
-    """
+           **Beispiele für Zerlegung in verschiedene Suchanfragen des Tools "suche_interne_kenntnisse":**
+           - Ursprünglich: „Unterschied zwischen Zubereitung von Brot heute und früher?“
+             - Teilfragen:
+               1. „Wie wurde Brot früher zubereitet?“
+               2. „Wie wird Brot heute zubereitet?“
+           - Ursprünglich: „Wie ist die Geschichte von Brot und wie wird es heute industriell hergestellt?“
+             - Teilfragen:
+               1. „Was ist die Geschichte von Brot?“
+               2. „Wie wird Brot heute industriell hergestellt?“
+
+        3. **Suche:** Führe gezielte Suchanfragen mit "suche_interne_kenntnisse" auf Basis der Zerlegungsregeln durch:
+           - Ergänze keine neuen Informationen oder Aspekte, die nicht explizit in der umformulierten Frage stehen.
+           - Die Suchanfragen sollen präzise Teilfragen der ursprünglichen Frage sein, ohne Vermutungen oder zusätzliche Inhalte.
+           - Verwende 6 relevante Textfragmente pro Benutzerfrage (top_k). Nutze diese clever aus, so dass du sie geschickt aufteilst, falls du mehrere Suchanfrage auslöst.
+           - Wenn keine Ergebnisse gefunden werden, passe die Suchanfrage maximal zweimal an (Synonyme/Alternativen).
+           - Informiere den Benutzer bei ausbleibenden Ergebnissen: „Es konnten keine relevanten Informationen zu Ihrer Anfrage gefunden werden.“
+
+        **Regeln:**
+        - Ergänze keine neuen Inhalte oder Details in den Suchanfragen. Die Suchanfragen basieren nur auf der ursprünglichen Frage oder deren Teilfragen.
+        - Zerlege die Frage nur, wenn ein Vergleich oder mehrere klar abgegrenzte Themen vorhanden sind.
+        - Vermeide redundante, generische oder irrelevante Teilfragen.
+        - Keine erfundenen Fakten, nutze nur Informationen aus der Frage.
+        """
 
     system_message = [ChatMessage.from_system(system_message)]
     messages = convert_to_chat_message_objects(messages)
     messages = system_message + messages
 
-    async def callback(chunk):
-        print(chunk)
+    async def callback(chunk: StreamingChunk):
+        if isinstance(chunk.content, ChatMessage) and chunk.content._content:
+            for item in chunk.content._content:
+                if isinstance(item, ToolCallResult):
+                    origin_call = item.origin
+                    tool_name = origin_call.tool_name
+                    arguments = origin_call.arguments
+                    result = item.result
+
+                    arg_table_rows = "\n".join(
+                        f"  | {key} | {value} |" for key, value in arguments.items()
+                    )
+
+                    md = (
+                        f"**{tool_name}**\n"
+                        "<details>\n"
+                        "  <summary>Click to expand</summary>\n\n"
+                        "  | Parameter | Value |\n"
+                        "  |-----------|-------|\n"
+                        f"{arg_table_rows}\n\n"
+                        f"{result}\n"
+                        "</details>"
+                    )
+
+                    await request_collector.queue.put(md)
+                    return
+
+        # Falls kein ToolCallResult gefunden wurde, normaler Ablauf
         await collect_chunk(request_collector.queue, chunk)
 
     input_data = {

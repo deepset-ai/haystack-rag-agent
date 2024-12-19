@@ -37,7 +37,7 @@ async def chat_completions_stream(query: OpenAIQuery):
                     }
                 ],
             }
-            yield f"data: {json.dumps(chunk)}\n\n"
+            yield f"data: {json.dumps(jsonable_encoder(chunk))}\n\n"
             i += 1
 
         # When done, send the [DONE] message

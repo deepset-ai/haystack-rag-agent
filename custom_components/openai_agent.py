@@ -3,6 +3,7 @@ from haystack import component
 from haystack_experimental.dataclasses import ChatMessage, Tool
 # from haystack_experimental.components.generators.chat import OpenAIChatGenerator
 from .openai_generator import OpenAIChatGenerator
+from haystack.dataclasses import StreamingChunk
 import inspect
 
 
@@ -30,18 +31,18 @@ class OpenAIAgent(OpenAIChatGenerator):
 
 
         if followup_messages:
-            print(f"followup{followup_messages}")
             messages = followup_messages
 
 
         parent_result = super(OpenAIAgent, self).run(messages, tools=tools, streaming_callback = streaming_callback, *args, **kwargs)
         completions = parent_result["replies"]
 
-        print(completions)
-
         messages.append(completions[0])
 
         if completions[0].tool_calls:
+            if streaming_callback:
+                chunk = StreamingChunk(content=followup_messages[-1])
+                streaming_callback(chunk)
             return {"tool_reply": messages}
 
         return {"replies": completions, "chat_history": messages}
@@ -58,10 +59,15 @@ class OpenAIAgent(OpenAIChatGenerator):
     ) -> Dict[str, Any]:
 
         if followup_messages:
+            if streaming_callback:
+                chunk = StreamingChunk(content=followup_messages[-1])
+                await streaming_callback(chunk)
             messages = followup_messages
 
         parent_result = await super(OpenAIAgent, self).run_async(messages, tools=tools, streaming_callback = streaming_callback,  *args, **kwargs)
         completions = parent_result["replies"]
+
+        print(completions[0])
 
         messages.append(completions[0])
 
