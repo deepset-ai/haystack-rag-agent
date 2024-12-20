@@ -1,4 +1,7 @@
-![AgentExample.png](readme_resources%2FAgentExample.png)
+![RagAgentExample.gif](readme_resources%2FRagAgentExample.gif)
+
+Also works Async:
+![AsyncRagExample.gif](readme_resources%2FAsyncRagExample.gif)
 
 ## Prerequisites
 
