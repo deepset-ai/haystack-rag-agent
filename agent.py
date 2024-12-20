@@ -13,10 +13,6 @@ from typing import AsyncGenerator
 import asyncio
 from asyncio import Queue
 from haystack.dataclasses import StreamingChunk
-from haystack_experimental.dataclasses import Tool
-from typing import Annotated, Literal
-
-from car_simulation_tools import get_car_simulation_tools  # Import car simulation tools
 
 _pipeline = None
 _tools = None
