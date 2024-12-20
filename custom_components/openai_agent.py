@@ -60,9 +60,9 @@ class OpenAIAgent(OpenAIChatGenerator):
     ) -> Dict[str, Any]:
 
         if followup_messages:
-            # if streaming_callback:
-            #     chunk = StreamingChunk(content=followup_messages[-1])
-            #     await streaming_callback(chunk)
+            if streaming_callback:
+                chunk = StreamingChunk(content=followup_messages[-1])
+                await streaming_callback(chunk)
             messages = followup_messages
 
         parent_result = await super(OpenAIAgent, self).run_async(messages, tools=tools, streaming_callback = streaming_callback,  *args, **kwargs)
